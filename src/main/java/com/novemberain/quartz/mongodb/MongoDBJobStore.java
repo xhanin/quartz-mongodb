@@ -30,6 +30,7 @@ import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.net.UnknownHostException;
 import java.util.*;
+import java.util.Map.Entry;
 
 import static com.novemberain.quartz.mongodb.Keys.*;
 
@@ -162,7 +163,21 @@ public class MongoDBJobStore implements JobStore, Constants {
 
   public void storeJobsAndTriggers(Map<JobDetail, Set<? extends Trigger>> triggersAndJobs, boolean replace)
       throws JobPersistenceException {
-    throw new UnsupportedOperationException();
+      for (Entry<JobDetail, Set<? extends Trigger>> entry : triggersAndJobs.entrySet()) {
+          for (Trigger trigger : entry.getValue()) {
+              if (! (trigger instanceof OperableTrigger)) {
+                  throw new UnsupportedOperationException("storing triggers which are not OperableTrigger is not supported");
+              }
+          }
+      }
+
+      for (Entry<JobDetail, Set<? extends Trigger>> entry : triggersAndJobs.entrySet()) {
+          ObjectId jobId = storeJobInMongo(entry.getKey(), replace);
+
+          for (Trigger newTrigger : entry.getValue()) {
+              storeTrigger((OperableTrigger) newTrigger, jobId, replace);
+          }
+      }
   }
 
   public boolean removeJob(JobKey jobKey) throws JobPersistenceException {
