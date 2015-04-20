@@ -160,7 +160,7 @@ public class MongoDBJobStore implements JobStore, Constants {
     storeJobInMongo(newJob, replaceExisting);
   }
 
-  public void storeJobsAndTriggers(Map<JobDetail, List<Trigger>> triggersAndJobs, boolean replace)
+  public void storeJobsAndTriggers(Map<JobDetail, Set<? extends Trigger>> triggersAndJobs, boolean replace)
       throws JobPersistenceException {
     throw new UnsupportedOperationException();
   }
@@ -668,12 +668,8 @@ public class MongoDBJobStore implements JobStore, Constants {
     }
   }
 
-  public void releaseAcquiredTrigger(OperableTrigger trigger) throws JobPersistenceException {
-    try {
+  public void releaseAcquiredTrigger(OperableTrigger trigger) {
       removeTriggerLock(trigger);
-    } catch (Exception e) {
-      throw new JobPersistenceException(e.getLocalizedMessage(), e);
-    }
   }
 
   public List<TriggerFiredResult> triggersFired(List<OperableTrigger> triggers) throws JobPersistenceException {
@@ -749,56 +745,59 @@ public class MongoDBJobStore implements JobStore, Constants {
 
   public void triggeredJobComplete(OperableTrigger trigger,
                                    JobDetail jobDetail,
-                                   CompletedExecutionInstruction triggerInstCode)
-      throws JobPersistenceException {
-    
-    log.debug("Trigger completed {}", trigger.getKey());
-    
-    if (jobDetail.isPersistJobDataAfterExecution()) {
-      if (jobDetail.getJobDataMap().isDirty()) {
-        log.debug("Job data map dirty, will store {}", jobDetail.getKey());
-        storeJobInMongo(jobDetail, true);
-      }
-    }
-    
-    if (jobDetail.isConcurrentExectionDisallowed()) {
-      log.debug("Removing lock for job {}", jobDetail.getKey());
-      BasicDBObject lock = new BasicDBObject();
-      lock.put(KEY_NAME, "jobconcurrentlock:" + jobDetail.getKey().getName());
-      lock.put(KEY_GROUP, jobDetail.getKey().getGroup());
-      locksCollection.remove(lock);
-    }
-    
-    // check for trigger deleted during execution...
-    OperableTrigger trigger2 = retrieveTrigger(trigger.getKey());
-    if (trigger2 != null) {
-      if (triggerInstCode == CompletedExecutionInstruction.DELETE_TRIGGER) {
-        if (trigger.getNextFireTime() == null) {
-          // double check for possible reschedule within job
-          // execution, which would cancel the need to delete...
-          if (trigger2.getNextFireTime() == null) {
-            removeTrigger(trigger.getKey());
-          }
-        } else {
-          removeTrigger(trigger.getKey());
-          signaler.signalSchedulingChange(0L);
-        }
-      } else if (triggerInstCode == CompletedExecutionInstruction.SET_TRIGGER_COMPLETE) {
-        // TODO: need to store state
-        signaler.signalSchedulingChange(0L);
-      } else if (triggerInstCode == CompletedExecutionInstruction.SET_TRIGGER_ERROR) {
-        // TODO: need to store state
-        signaler.signalSchedulingChange(0L);
-      } else if (triggerInstCode == CompletedExecutionInstruction.SET_ALL_JOB_TRIGGERS_ERROR) {
-        // TODO: need to store state
-        signaler.signalSchedulingChange(0L);
-      } else if (triggerInstCode == CompletedExecutionInstruction.SET_ALL_JOB_TRIGGERS_COMPLETE) {
-        // TODO: need to store state
-        signaler.signalSchedulingChange(0L);
-      }
-    }
+                                   CompletedExecutionInstruction triggerInstCode) {
 
-    removeTriggerLock(trigger);
+      try {
+          log.debug("Trigger completed {}", trigger.getKey());
+
+          if (jobDetail.isPersistJobDataAfterExecution()) {
+              if (jobDetail.getJobDataMap().isDirty()) {
+                  log.debug("Job data map dirty, will store {}", jobDetail.getKey());
+                  storeJobInMongo(jobDetail, true);
+              }
+          }
+
+          if (jobDetail.isConcurrentExectionDisallowed()) {
+              log.debug("Removing lock for job {}", jobDetail.getKey());
+              BasicDBObject lock = new BasicDBObject();
+              lock.put(KEY_NAME, "jobconcurrentlock:" + jobDetail.getKey().getName());
+              lock.put(KEY_GROUP, jobDetail.getKey().getGroup());
+              locksCollection.remove(lock);
+          }
+
+          // check for trigger deleted during execution...
+          OperableTrigger trigger2 = retrieveTrigger(trigger.getKey());
+          if (trigger2 != null) {
+              if (triggerInstCode == CompletedExecutionInstruction.DELETE_TRIGGER) {
+                  if (trigger.getNextFireTime() == null) {
+                      // double check for possible reschedule within job
+                      // execution, which would cancel the need to delete...
+                      if (trigger2.getNextFireTime() == null) {
+                          removeTrigger(trigger.getKey());
+                      }
+                  } else {
+                      removeTrigger(trigger.getKey());
+                      signaler.signalSchedulingChange(0L);
+                  }
+              } else if (triggerInstCode == CompletedExecutionInstruction.SET_TRIGGER_COMPLETE) {
+                  // TODO: need to store state
+                  signaler.signalSchedulingChange(0L);
+              } else if (triggerInstCode == CompletedExecutionInstruction.SET_TRIGGER_ERROR) {
+                  // TODO: need to store state
+                  signaler.signalSchedulingChange(0L);
+              } else if (triggerInstCode == CompletedExecutionInstruction.SET_ALL_JOB_TRIGGERS_ERROR) {
+                  // TODO: need to store state
+                  signaler.signalSchedulingChange(0L);
+              } else if (triggerInstCode == CompletedExecutionInstruction.SET_ALL_JOB_TRIGGERS_COMPLETE) {
+                  // TODO: need to store state
+                  signaler.signalSchedulingChange(0L);
+              }
+          }
+
+          removeTriggerLock(trigger);
+      } catch (Exception ex) {
+          throw new RuntimeException(ex);
+      }
   }
 
   public void setInstanceId(String instanceId) {
